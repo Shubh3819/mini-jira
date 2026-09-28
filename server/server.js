@@ -9,12 +9,23 @@ const ticketRoutes = require("./routes/ticketRoutes");
 
 const app = express();
 
-// Connect to MongoDB
-connectDB();
-
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Ensure MongoDB is connected before handling API requests
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error("Database connection error:", error.message);
+
+    return res.status(500).json({
+      message: "Database connection failed",
+    });
+  }
+});
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -28,8 +39,6 @@ app.get("/", (req, res) => {
   });
 });
 
-module.exports = app;
-
 // Local development
 if (require.main === module) {
   const PORT = process.env.PORT || 5000;
@@ -38,3 +47,5 @@ if (require.main === module) {
     console.log(`Server running on port ${PORT}`);
   });
 }
+
+module.exports = app;
