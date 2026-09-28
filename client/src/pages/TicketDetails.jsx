@@ -6,8 +6,6 @@ import { useAuth } from "../context/AuthContext";
 import {
   getTicketById,
   updateTicket,
-  updateTicketStatus,
-  assignTicket,
   deleteTicket,
 } from "../services/ticketService";
 
@@ -197,7 +195,10 @@ const StatusPill = ({ status }) => {
 };
 
 const TypeChip = ({ type }) => {
-  const config = TYPES[type] || { label: formatType(type), dot: "bg-slate-400" };
+  const config = TYPES[type] || {
+    label: formatType(type),
+    dot: "bg-slate-400",
+  };
 
   return (
     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
@@ -376,10 +377,13 @@ const TicketDetails = () => {
   const [error, setError] = useState("");
 
   const [editing, setEditing] = useState(false);
+
   const [saving, setSaving] = useState(false);
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [assigning, setAssigning] = useState(false);
+
+  const [savingDetails, setSavingDetails] = useState(false);
+
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState({
@@ -488,58 +492,37 @@ const TicketDetails = () => {
     }
   };
 
-  /* -------------------------------- Status --------------------------------- */
-
-  // Saves as soon as a new status is picked, and rolls back if the request fails.
-  const handleStatusChange = async (e) => {
-    const nextStatus = e.target.value;
-
-    if (nextStatus === ticket.status) return;
-
-    const previousStatus = ticket.status;
-    setSelectedStatus(nextStatus);
-
-    try {
-      setUpdatingStatus(true);
-      setError("");
-
-      const data = await updateTicketStatus(id, nextStatus);
-
-      setTicket(data.ticket);
-      setSelectedStatus(data.ticket.status);
-    } catch (error) {
-      setSelectedStatus(previousStatus);
-      setError(
-        error.response?.data?.message || "Failed to update ticket status.",
-      );
-    } finally {
-      setUpdatingStatus(false);
-    }
-  };
-
   /* ------------------------------- Assignment ------------------------------ */
 
-  const handleAssigneeChange = async (e) => {
-    const nextAssignee = e.target.value;
+  const handleSaveDetails = async () => {
     const currentAssignee = ticket.assignedTo?._id || "";
 
-    if (nextAssignee === currentAssignee) return;
-
-    setSelectedAssignee(nextAssignee);
+    if (
+      selectedStatus === ticket.status &&
+      selectedAssignee === currentAssignee
+    ) {
+      return;
+    }
 
     try {
-      setAssigning(true);
+      setSavingDetails(true);
       setError("");
 
-      const data = await assignTicket(id, nextAssignee || null);
+      const data = await updateTicket(id, {
+        status: selectedStatus,
+        assignedTo: selectedAssignee || null,
+      });
 
       setTicket(data.ticket);
+
+      setSelectedStatus(data.ticket.status);
       setSelectedAssignee(data.ticket.assignedTo?._id || "");
     } catch (error) {
-      setSelectedAssignee(currentAssignee);
-      setError(error.response?.data?.message || "Failed to assign ticket.");
+      setError(
+        error.response?.data?.message || "Failed to save ticket changes.",
+      );
     } finally {
-      setAssigning(false);
+      setSavingDetails(false);
     }
   };
 
@@ -595,7 +578,9 @@ const TicketDetails = () => {
             <AlertIcon />
           </span>
 
-          <h2 className="text-lg font-semibold mt-4">This ticket didn't load</h2>
+          <h2 className="text-lg font-semibold mt-4">
+            This ticket didn't load
+          </h2>
 
           <p className="text-sm text-slate-500 mt-1.5">{error}</p>
 
@@ -778,7 +763,7 @@ const TicketDetails = () => {
                   </div>
                 </div>
 
-                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mt-4 break-words">
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mt-4 wrap-break-word">
                   {ticket.title}
                 </h1>
               </header>
@@ -790,7 +775,7 @@ const TicketDetails = () => {
                 </h2>
 
                 {ticket.description ? (
-                  <p className="text-slate-700 mt-2 leading-7 whitespace-pre-wrap break-words max-w-prose">
+                  <p className="text-slate-700 mt-2 leading-7 whitespace-pre-wrap wrap-break-word max-w-prose">
                     {ticket.description}
                   </p>
                 ) : (
@@ -824,9 +809,7 @@ const TicketDetails = () => {
                       </span>
                     ))
                   ) : (
-                    <span className="text-sm text-slate-500">
-                      None added.
-                    </span>
+                    <span className="text-sm text-slate-500">None added.</span>
                   )}
                 </div>
               </section>
@@ -847,8 +830,8 @@ const TicketDetails = () => {
 
                 <select
                   value={selectedStatus}
-                  onChange={handleStatusChange}
-                  disabled={updatingStatus}
+                  onChange={(e) => setSelectedStatus(e.target.value)}
+                  disabled={savingDetails}
                   aria-label="Status"
                   className={`${INPUT} pl-8 py-2`}
                 >
@@ -864,8 +847,8 @@ const TicketDetails = () => {
             <DetailRow label="Assignee">
               <select
                 value={selectedAssignee}
-                onChange={handleAssigneeChange}
-                disabled={assigning}
+                onChange={(e) => setSelectedAssignee(e.target.value)}
+                disabled={savingDetails}
                 aria-label="Assignee"
                 className={`${INPUT} py-2`}
               >
@@ -914,11 +897,20 @@ const TicketDetails = () => {
             )}
           </dl>
 
-          {(updatingStatus || assigning) && (
-            <p role="status" className="text-xs text-slate-500 mt-4">
-              Saving...
-            </p>
-          )}
+          <div className="flex justify-end mt-5">
+            <button
+              type="button"
+              onClick={handleSaveDetails}
+              disabled={
+                savingDetails ||
+                (selectedStatus === ticket.status &&
+                  selectedAssignee === (ticket.assignedTo?._id || ""))
+              }
+              className={BTN_PRIMARY}
+            >
+              {savingDetails ? "Saving..." : "Save changes"}
+            </button>
+          </div>
         </aside>
       </div>
 

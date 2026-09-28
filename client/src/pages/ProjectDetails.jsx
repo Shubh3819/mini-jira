@@ -6,6 +6,9 @@ import { useAuth } from "../context/AuthContext";
 import {
   getProjectById,
   getProjectMembers,
+  getUsers,
+  addProjectMember,
+  removeProjectMember,
   updateProject,
   deleteProject,
 } from "../services/projectService";
@@ -252,7 +255,10 @@ const StatusPill = ({ status }) => {
 };
 
 const TypeChip = ({ type }) => {
-  const config = TYPES[type] || { label: formatType(type), dot: "bg-slate-400" };
+  const config = TYPES[type] || {
+    label: formatType(type),
+    dot: "bg-slate-400",
+  };
 
   return (
     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">
@@ -412,9 +418,15 @@ const PageShell = ({ children }) => {
 const ProjectDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [project, setProject] = useState(null);
   const [members, setMembers] = useState([]);
+  const [users, setUsers] = useState([]);
+
+  const [showMemberForm, setShowMemberForm] = useState(false);
+  const [selectedMember, setSelectedMember] = useState("");
+  const [managingMember, setManagingMember] = useState(false);
 
   // `tickets` is what the list shows (may be filtered).
   // `allTickets` is the full set, so the progress stats never change when filtering.
@@ -466,6 +478,10 @@ const ProjectDetails = () => {
     filters.search.trim() || filters.status || filters.priority,
   );
 
+  const isProjectCreator =
+    (project?.createdBy?._id || project?.createdBy)?.toString() ===
+    user?._id?.toString();
+
   /* ------------------------------ Load project ----------------------------- */
 
   const loadProjectData = useCallback(async () => {
@@ -495,6 +511,76 @@ const ProjectDetails = () => {
       setLoading(false);
     }
   }, [id]);
+
+  const openMemberForm = async () => {
+    try {
+      setError("");
+
+      const data = await getUsers();
+      setUsers(data.users);
+      setSelectedMember("");
+      setShowMemberForm(true);
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to load users.");
+    }
+  };
+
+  const closeMemberForm = useCallback(() => {
+    if (!managingMember) {
+      setShowMemberForm(false);
+      setSelectedMember("");
+    }
+  }, [managingMember]);
+
+  const handleAddMember = async (e) => {
+    e.preventDefault();
+
+    if (!selectedMember) {
+      setError("Please select a user.");
+      return;
+    }
+
+    try {
+      setManagingMember(true);
+      setError("");
+
+      const data = await addProjectMember(id, selectedMember);
+
+      setMembers((prev) => [...prev, data.member]);
+
+      setSelectedMember("");
+      setShowMemberForm(false);
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to add member.");
+    } finally {
+      setManagingMember(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId) => {
+    const member = members.find((item) => item._id === userId);
+
+    if (!member) return;
+
+    const confirmed = window.confirm(
+      `Remove ${member.name} from this project?`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setManagingMember(true);
+      setError("");
+
+      await removeProjectMember(id, userId);
+
+      setMembers((prev) => prev.filter((item) => item._id !== userId));
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to remove member.");
+    } finally {
+      setManagingMember(false);
+    }
+  };
 
   useEffect(() => {
     loadProjectData();
@@ -745,7 +831,8 @@ const ProjectDetails = () => {
   const completionRate =
     totalCount > 0 ? Math.round((countByStatus.DONE / totalCount) * 100) : 0;
 
-  const modalOpen = showEditForm || showCreateForm || showDeleteConfirm;
+  const modalOpen =
+    showEditForm || showCreateForm || showDeleteConfirm || showMemberForm;
 
   /* --------------------------------- Render -------------------------------- */
 
@@ -826,11 +913,19 @@ const ProjectDetails = () => {
               Delete
             </button>
 
-            <button type="button" onClick={openEditForm} className={BTN_SECONDARY}>
+            <button
+              type="button"
+              onClick={openEditForm}
+              className={BTN_SECONDARY}
+            >
               Edit project
             </button>
 
-            <button type="button" onClick={openCreateForm} className={BTN_PRIMARY}>
+            <button
+              type="button"
+              onClick={openCreateForm}
+              className={BTN_PRIMARY}
+            >
               <PlusIcon />
               Create ticket
             </button>
@@ -902,7 +997,11 @@ const ProjectDetails = () => {
             </select>
 
             <div className="flex items-center gap-2 sm:col-span-2 lg:col-span-1">
-              <button type="submit" disabled={filtering} className={BTN_PRIMARY}>
+              <button
+                type="submit"
+                disabled={filtering}
+                className={BTN_PRIMARY}
+              >
                 {filtering ? "Filtering..." : "Filter"}
               </button>
 
@@ -1091,11 +1190,25 @@ const ProjectDetails = () => {
 
           {/* Members */}
           <section className="bg-white border border-slate-200 rounded-2xl p-6">
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold">Members</h2>
-              <span className="text-sm text-slate-500 tabular-nums">
-                {members.length}
-              </span>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-baseline gap-2">
+                <h2 className="font-semibold">Members</h2>
+
+                <span className="text-sm text-slate-500 tabular-nums">
+                  {members.length}
+                </span>
+              </div>
+
+              {isProjectCreator && (
+                <button
+                  type="button"
+                  onClick={openMemberForm}
+                  className={`${BTN_SECONDARY} px-3 py-1.5`}
+                >
+                  <PlusIcon />
+                  Add
+                </button>
+              )}
             </div>
 
             {members.length === 0 ? (
@@ -1104,26 +1217,53 @@ const ProjectDetails = () => {
               </p>
             ) : (
               <ul className="mt-4 space-y-3.5">
-                {members.map((member) => (
-                  <li key={member._id} className="flex items-center gap-3">
-                    <Avatar name={member.name} />
+                {members.map((member) => {
+                  const isCreator =
+                    member._id?.toString() === project.createdBy?.toString();
 
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">
-                        {member.name}
-                      </p>
-                      <p className="text-xs text-slate-500 truncate">
-                        {member.email}
-                      </p>
-                    </div>
+                  return (
+                    <li key={member._id} className="flex items-center gap-3">
+                      <Avatar name={member.name} />
 
-                    {member.role && (
-                      <span className="text-xs text-slate-500 shrink-0">
-                        {formatType(member.role)}
-                      </span>
-                    )}
-                  </li>
-                ))}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium truncate">
+                          {member.name}
+                        </p>
+
+                        <p className="text-xs text-slate-500 truncate">
+                          {member.email}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isCreator ? (
+                          <span className="text-xs text-indigo-600 font-medium">
+                            Owner
+                          </span>
+                        ) : (
+                          <>
+                            {member.role && (
+                              <span className="text-xs text-slate-500 hidden sm:block">
+                                {formatType(member.role)}
+                              </span>
+                            )}
+
+                            {isProjectCreator && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMember(member._id)}
+                                disabled={managingMember}
+                                className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-md transition-colors disabled:opacity-50"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
@@ -1197,6 +1337,61 @@ const ProjectDetails = () => {
                 className={BTN_PRIMARY}
               >
                 {updatingProject ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* Add member */}
+      {showMemberForm && (
+        <Modal
+          title="Add project member"
+          description="Select a registered user to add to this project."
+          onClose={closeMemberForm}
+        >
+          <form onSubmit={handleAddMember} className="space-y-5">
+            {error && <ErrorNote message={error} />}
+
+            <Field label="Select member" htmlFor="project-member">
+              <select
+                id="project-member"
+                value={selectedMember}
+                onChange={(e) => setSelectedMember(e.target.value)}
+                className={INPUT}
+                disabled={managingMember}
+              >
+                <option value="">Select a user</option>
+
+                {users
+                  .filter(
+                    (user) =>
+                      !members.some((member) => member._id === user._id),
+                  )
+                  .map((user) => (
+                    <option key={user._id} value={user._id}>
+                      {user.name} ({user.email})
+                    </option>
+                  ))}
+              </select>
+            </Field>
+
+            <div className="flex justify-end gap-3 pt-1">
+              <button
+                type="button"
+                onClick={closeMemberForm}
+                disabled={managingMember}
+                className={BTN_SECONDARY}
+              >
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={managingMember || !selectedMember}
+                className={BTN_PRIMARY}
+              >
+                {managingMember ? "Adding..." : "Add member"}
               </button>
             </div>
           </form>

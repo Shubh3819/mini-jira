@@ -35,8 +35,7 @@ const createTicket = async (req, res) => {
 
     // Check whether the current user belongs to the project
     const isMember = existingProject.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString(),
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -63,9 +62,7 @@ const createTicket = async (req, res) => {
       },
     }).sort({ ticketNumber: -1 });
 
-    const ticketNumber = lastTicket
-      ? lastTicket.ticketNumber + 1
-      : 1;
+    const ticketNumber = lastTicket ? lastTicket.ticketNumber + 1 : 1;
 
     const ticketKey = `${existingProject.key}-${ticketNumber}`;
 
@@ -82,6 +79,19 @@ const createTicket = async (req, res) => {
     console.log("New Ticket Key:", ticketKey);
     console.log("===================================");
 
+    // Validate assigned user if one was selected
+    if (assignedTo) {
+      const isAssignedUserMember = existingProject.members.some(
+        (memberId) => memberId.toString() === assignedTo.toString(),
+      );
+
+      if (!isAssignedUserMember) {
+        return res.status(400).json({
+          message: "User is not a member of this project",
+        });
+      }
+    }
+
     const ticket = await Ticket.create({
       ticketNumber,
       ticketKey,
@@ -95,6 +105,11 @@ const createTicket = async (req, res) => {
       createdBy: req.user._id,
     });
 
+    // Return populated ticket data
+    await ticket.populate("assignedTo", "name email role");
+    await ticket.populate("project", "name key");
+    await ticket.populate("createdBy", "name email");
+
     res.status(201).json({
       message: "Ticket created successfully",
       ticket,
@@ -104,8 +119,7 @@ const createTicket = async (req, res) => {
 
     if (error.code === 11000) {
       return res.status(409).json({
-        message:
-          "A ticket with this key already exists. Please try again.",
+        message: "A ticket with this key already exists. Please try again.",
         error: error.message,
       });
     }
@@ -119,20 +133,13 @@ const createTicket = async (req, res) => {
 
 const getTickets = async (req, res) => {
   try {
-    const {
-      project,
-      status,
-      priority,
-      search,
-    } = req.query;
+    const { project, status, priority, search } = req.query;
 
     const projects = await Project.find({
       members: req.user._id,
     }).select("_id");
 
-    const projectIds = projects.map(
-      (project) => project._id,
-    );
+    const projectIds = projects.map((project) => project._id);
 
     const filter = {
       project: { $in: projectIds },
@@ -249,9 +256,7 @@ const updateTicket = async (req, res) => {
       });
     }
 
-    const project = await Project.findById(
-      ticket.project,
-    );
+    const project = await Project.findById(ticket.project);
 
     if (!project) {
       return res.status(404).json({
@@ -260,8 +265,7 @@ const updateTicket = async (req, res) => {
     }
 
     const isMember = project.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString(),
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -291,7 +295,22 @@ const updateTicket = async (req, res) => {
     }
 
     if (assignedTo !== undefined) {
-      ticket.assignedTo = assignedTo;
+      // Allow clearing the assignee
+      if (assignedTo === null || assignedTo === "") {
+        ticket.assignedTo = null;
+      } else {
+        const isAssignedUserMember = project.members.some(
+          (memberId) => memberId.toString() === assignedTo.toString(),
+        );
+
+        if (!isAssignedUserMember) {
+          return res.status(400).json({
+            message: "User is not a member of this project",
+          });
+        }
+
+        ticket.assignedTo = assignedTo;
+      }
     }
 
     if (labels !== undefined) {
@@ -299,6 +318,11 @@ const updateTicket = async (req, res) => {
     }
 
     await ticket.save();
+
+    // Return fully populated ticket
+    await ticket.populate("assignedTo", "name email role");
+    await ticket.populate("project", "name key");
+    await ticket.populate("createdBy", "name email");
 
     res.status(200).json({
       message: "Ticket updated successfully",
@@ -330,9 +354,7 @@ const assignTicket = async (req, res) => {
       });
     }
 
-    const project = await Project.findById(
-      ticket.project,
-    );
+    const project = await Project.findById(ticket.project);
 
     if (!project) {
       return res.status(404).json({
@@ -342,8 +364,7 @@ const assignTicket = async (req, res) => {
 
     // Check whether current user belongs to the project
     const isMember = project.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString(),
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -354,8 +375,7 @@ const assignTicket = async (req, res) => {
 
     // Check whether assigned user belongs to the project
     const isAssignedUserMember = project.members.some(
-      (memberId) =>
-        memberId.toString() === assignedTo.toString(),
+      (memberId) => memberId.toString() === assignedTo.toString(),
     );
 
     if (!isAssignedUserMember) {
@@ -368,10 +388,9 @@ const assignTicket = async (req, res) => {
 
     await ticket.save();
 
-    await ticket.populate(
-      "assignedTo",
-      "name email role",
-    );
+    await ticket.populate("assignedTo", "name email role");
+    await ticket.populate("project", "name key");
+    await ticket.populate("createdBy", "name email");
 
     res.status(200).json({
       message: "Ticket assigned successfully",
@@ -395,9 +414,7 @@ const deleteTicket = async (req, res) => {
       });
     }
 
-    const project = await Project.findById(
-      ticket.project,
-    );
+    const project = await Project.findById(ticket.project);
 
     if (!project) {
       return res.status(404).json({
@@ -406,8 +423,7 @@ const deleteTicket = async (req, res) => {
     }
 
     const isMember = project.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString(),
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -460,9 +476,7 @@ const updateTicketStatus = async (req, res) => {
       });
     }
 
-    const project = await Project.findById(
-      ticket.project,
-    );
+    const project = await Project.findById(ticket.project);
 
     if (!project) {
       return res.status(404).json({
@@ -471,8 +485,7 @@ const updateTicketStatus = async (req, res) => {
     }
 
     const isMember = project.members.some(
-      (memberId) =>
-        memberId.toString() === req.user._id.toString(),
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -484,6 +497,10 @@ const updateTicketStatus = async (req, res) => {
     ticket.status = status;
 
     await ticket.save();
+
+    await ticket.populate("assignedTo", "name email role");
+    await ticket.populate("project", "name key");
+    await ticket.populate("createdBy", "name email");
 
     res.status(200).json({
       message: "Ticket status updated successfully",

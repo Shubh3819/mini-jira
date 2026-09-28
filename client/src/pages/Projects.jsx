@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 
 import { useAuth } from "../context/AuthContext";
-import { getProjects, createProject } from "../services/projectService";
+import {
+  getProjects,
+  createProject,
+  getUsers,
+} from "../services/projectService";
 
 /* -------------------------------------------------------------------------- */
 /*  Design tokens (same as the other pages)                                   */
@@ -121,7 +125,11 @@ const CheckIcon = () => (
     aria-hidden="true"
   >
     <circle cx="10" cy="10" r="7.5" />
-    <path d="m6.8 10.2 2.2 2.2 4.2-4.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="m6.8 10.2 2.2 2.2 4.2-4.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </svg>
 );
 
@@ -302,8 +310,15 @@ const PageShell = ({ children }) => {
 const Projects = () => {
   const [projects, setProjects] = useState([]);
 
-  const emptyForm = { name: "", key: "", description: "" };
+  const emptyForm = {
+    name: "",
+    key: "",
+    description: "",
+    members: [],
+  };
   const [formData, setFormData] = useState(emptyForm);
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [search, setSearch] = useState("");
@@ -340,10 +355,21 @@ const Projects = () => {
     return () => clearTimeout(timer);
   }, [success]);
 
-  const openCreateForm = () => {
+  const openCreateForm = async () => {
     setError("");
     setSuccess("");
-    setShowCreateForm(true);
+    setLoadingUsers(true);
+
+    try {
+      const data = await getUsers();
+      setUsers(data.users || []);
+      setFormData(emptyForm);
+      setShowCreateForm(true);
+    } catch (error) {
+      setError(error.response?.data?.message || "Failed to load users.");
+    } finally {
+      setLoadingUsers(false);
+    }
   };
 
   const closeCreateForm = useCallback(() => setShowCreateForm(false), []);
@@ -356,6 +382,14 @@ const Projects = () => {
       [name]: value,
     }));
   };
+  const handleMemberChange = (userId) => {
+    setFormData((prev) => ({
+      ...prev,
+      members: prev.members.includes(userId)
+        ? prev.members.filter((id) => id !== userId)
+        : [...prev.members, userId],
+    }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -366,8 +400,10 @@ const Projects = () => {
 
     try {
       const data = await createProject({
-        ...formData,
+        name: formData.name,
         key: formData.key.toUpperCase(),
+        description: formData.description,
+        members: formData.members,
       });
 
       setProjects((prevProjects) => [data.project, ...prevProjects]);
@@ -420,7 +456,10 @@ const Projects = () => {
       {/* Messages */}
       {error && !showCreateForm && (
         <div className="mt-6">
-          <ErrorNote message={error} onRetry={projects.length === 0 ? loadProjects : undefined} />
+          <ErrorNote
+            message={error}
+            onRetry={projects.length === 0 ? loadProjects : undefined}
+          />
         </div>
       )}
 
@@ -496,7 +535,9 @@ const Projects = () => {
           </div>
         ) : visibleProjects.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-2xl px-6 py-12 text-center">
-            <h2 className="font-semibold">No projects match "{search.trim()}"</h2>
+            <h2 className="font-semibold">
+              No projects match "{search.trim()}"
+            </h2>
 
             <button
               type="button"
@@ -597,6 +638,54 @@ const Projects = () => {
                 rows="4"
                 className={`${INPUT} resize-none`}
               />
+            </Field>
+
+            <Field
+              label="Project members"
+              hint="Select the users who should be part of this project."
+            >
+              <div className="border border-slate-300 rounded-lg max-h-48 overflow-y-auto">
+                {loadingUsers ? (
+                  <p className="px-3.5 py-3 text-sm text-slate-500">
+                    Loading users...
+                  </p>
+                ) : users.length === 0 ? (
+                  <p className="px-3.5 py-3 text-sm text-slate-500">
+                    No registered users found.
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-100">
+                    {users.map((user) => {
+                      const selected = formData.members.includes(user._id);
+
+                      return (
+                        <label
+                          key={user._id}
+                          className="flex items-center gap-3 px-3.5 py-3 cursor-pointer hover:bg-slate-50"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            onChange={() => handleMemberChange(user._id)}
+                            className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+
+                          <Avatar name={user.name} />
+
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-slate-900 truncate">
+                              {user.name}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {user.email}
+                            </p>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </Field>
 
             <div className="flex justify-end gap-3 pt-1">

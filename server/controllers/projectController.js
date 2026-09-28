@@ -1,5 +1,6 @@
 const Project = require("../models/Project");
 const User = require("../models/User");
+const Ticket = require("../models/Ticket");
 
 const addProjectMember = async (req, res) => {
   try {
@@ -40,7 +41,7 @@ const addProjectMember = async (req, res) => {
 
     // Check whether user is already a member
     const isAlreadyMember = project.members.some(
-      (memberId) => memberId.toString() === userId.toString()
+      (memberId) => memberId.toString() === userId.toString(),
     );
 
     if (isAlreadyMember) {
@@ -70,9 +71,78 @@ const addProjectMember = async (req, res) => {
   }
 };
 
+const removeProjectMember = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const project = await Project.findById(req.params.id);
+
+    if (!project) {
+      return res.status(404).json({
+        message: "Project not found",
+      });
+    }
+
+    // Only the project creator can remove members
+    const isCreator =
+      project.createdBy.toString() === req.user._id.toString();
+
+    if (!isCreator) {
+      return res.status(403).json({
+        message: "Only the project creator can remove members",
+      });
+    }
+
+    // Creator cannot remove themselves
+    if (userId === project.createdBy.toString()) {
+      return res.status(400).json({
+        message: "Project creator cannot be removed",
+      });
+    }
+
+    const isMember = project.members.some(
+      (memberId) => memberId.toString() === userId,
+    );
+
+    if (!isMember) {
+      return res.status(404).json({
+        message: "User is not a project member",
+      });
+    }
+
+    project.members = project.members.filter(
+      (memberId) => memberId.toString() !== userId,
+    );
+
+    // Remove the user from any tickets they were assigned to
+    await Ticket.updateMany(
+      {
+        project: project._id,
+        assignedTo: userId,
+      },
+      {
+        $set: {
+          assignedTo: null,
+        },
+      },
+    );
+
+    await project.save();
+
+    res.status(200).json({
+      message: "Member removed successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 const createProject = async (req, res) => {
   try {
-    const { name, key, description } = req.body;
+    const { name, key, description, members = [] } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -86,8 +156,10 @@ const createProject = async (req, res) => {
       });
     }
 
+    const normalizedKey = key.toUpperCase();
+
     const existingProject = await Project.findOne({
-      key: key.toUpperCase(),
+      key: normalizedKey,
     });
 
     if (existingProject) {
@@ -96,12 +168,38 @@ const createProject = async (req, res) => {
       });
     }
 
+    // Validate members
+    if (!Array.isArray(members)) {
+      return res.status(400).json({
+        message: "Members must be an array",
+      });
+    }
+
+    const validUsers = await User.find({
+      _id: { $in: members },
+    }).select("_id");
+
+    if (validUsers.length !== members.length) {
+      return res.status(400).json({
+        message: "One or more selected members do not exist",
+      });
+    }
+
+    // Always include the project creator
+    const memberIds = [
+      req.user._id.toString(),
+      ...members.map((id) => id.toString()),
+    ];
+
+    // Remove duplicate member IDs
+    const uniqueMemberIds = [...new Set(memberIds)];
+
     const project = await Project.create({
       name,
-      key,
+      key: normalizedKey,
       description,
       createdBy: req.user._id,
-      members: [req.user._id],
+      members: uniqueMemberIds,
     });
 
     res.status(201).json({
@@ -144,7 +242,7 @@ const getProjectById = async (req, res) => {
     }
 
     const isMember = project.members.some(
-      (memberId) => memberId.toString() === req.user._id.toString()
+      (memberId) => memberId.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -259,8 +357,10 @@ const deleteProject = async (req, res) => {
 
 const getProjectMembers = async (req, res) => {
   try {
-    const project = await Project.findById(req.params.id)
-      .populate("members", "name email role");
+    const project = await Project.findById(req.params.id).populate(
+      "members",
+      "name email role",
+    );
 
     if (!project) {
       return res.status(404).json({
@@ -269,7 +369,7 @@ const getProjectMembers = async (req, res) => {
     }
 
     const isMember = project.members.some(
-      (member) => member._id.toString() === req.user._id.toString()
+      (member) => member._id.toString() === req.user._id.toString(),
     );
 
     if (!isMember) {
@@ -289,6 +389,23 @@ const getProjectMembers = async (req, res) => {
   }
 };
 
+const getUsers = async (req, res) => {
+  try {
+    const users = await User.find()
+      .select("name email role")
+      .sort({ name: 1 });
+
+    res.status(200).json({
+      users,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   createProject,
   getProjects,
@@ -297,4 +414,6 @@ module.exports = {
   deleteProject,
   getProjectMembers,
   addProjectMember,
+  removeProjectMember,
+  getUsers,
 };

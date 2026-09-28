@@ -7,6 +7,13 @@ export const getProjects = async () => {
   return response.data;
 };
 
+// Get all users
+export const getUsers = async () => {
+  const response = await api.get("/projects/users");
+
+  return response.data;
+};
+
 // Get single project
 export const getProjectById = async (projectId) => {
   const response = await api.get(
@@ -67,6 +74,18 @@ export const addProjectMember = async (
     {
       userId,
     },
+  );
+
+  return response.data;
+};
+
+// Remove project member
+export const removeProjectMember = async (
+  projectId,
+  userId,
+) => {
+  const response = await api.delete(
+    `/projects/${projectId}/members/${userId}`,
   );
 
   return response.data;
