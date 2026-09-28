@@ -71,6 +71,42 @@ Mini Jira allows teams to create projects, manage tickets, assign work to team m
 
 ---
 
+---
+
+## Screenshots
+
+### Dashboard
+
+The dashboard provides an overview of projects, ticket status, workload, priorities, and recent tickets.
+
+![Mini Jira Dashboard](docs/screenshots/dashboard.png)
+
+### Project Details
+
+Project pages provide ticket management, filtering, project progress, and team member information.
+
+![Project Details](docs/screenshots/project-details.png)
+
+### Edit Project
+
+Projects can be updated through a dedicated modal interface.
+
+![Edit Project](docs/screenshots/edit-project.png)
+
+### Create Ticket
+
+Tickets can be created with a title, description, type, priority, assignee, and labels.
+
+![Create Ticket](docs/screenshots/create-ticket.png)
+
+### Ticket Details
+
+The ticket details page allows users to view and update ticket status, assignee, priority, and other information.
+
+![Ticket Details](docs/screenshots/ticket-details.png)
+
+---
+
 ## Tech Stack
 
 ### Frontend
